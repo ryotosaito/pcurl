@@ -57,6 +57,8 @@ parse_url() {
 		declare -i PORT=$PORT_TMP
 	fi
 	PATH="/${TMP#*/}"
+	# Remove hash from PATH
+	PATH="${PATH%#*}"
 
 	local -A return=(
 		[URL]="$URL"
