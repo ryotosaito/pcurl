@@ -18,6 +18,13 @@ help() {
 	exit
 }
 
+debug_echo() {
+	if $VERBOSE
+	then
+		echo "$@" >&2
+	fi
+}
+
 send_peer() {
 	if $VERBOSE
 	then
@@ -92,21 +99,21 @@ http_request() {
 		HOST="${PROXY_TARGET[HOST]}"
 		PORT="${PROXY_TARGET[PORT]}"
 	else
-		if [[ "${TARGET[HOST]}:${TARGET[PORT]}" = "${connect_to[0]}:${connect_to[1]}" ]]
+		if [[ -v connect_to ]] && [[ "${TARGET[HOST]}:${TARGET[PORT]}" = "${connect_to[0]}:${connect_to[1]}" ]]
 		then
 			HOST="${connect_to[2]}"
 			PORT="${connect_to[3]}"
-			echo "* Connecting to hostname: $HOST" >&2
-			echo "* Connecting to port: $PORT" >&2
+			debug_echo "* Connecting to hostname: $HOST"
+			debug_echo "* Connecting to port: $PORT"
 		else
 			HOST="${TARGET[HOST]}"
 			PORT="${TARGET[PORT]}"
 		fi
 	fi
-	echo "*   Trying $HOST:$PORT..." >&2
+	debug_echo "*   Trying $HOST:$PORT..."
 	exec {peer}<>"/dev/tcp/$HOST/$PORT"
 	exec >&"$peer"
-	echo "* Connected to $HOST port $PORT (#$CONN_COUNT)" >&2
+	debug_echo "* Connected to $HOST port $PORT (#$CONN_COUNT)"
 
 
 	# Send HTTP Request
@@ -143,13 +150,13 @@ http_request() {
 					echo "< $LINE" >&2
 				fi
 			done
-			echo "* Proxy replied ${RESP_STATUS%% *} to CONNECT request" >&2
-			echo "* CONNECT phase completed!" >&2
+			debug_echo "* Proxy replied ${RESP_STATUS%% *} to CONNECT request"
+			debug_echo "* CONNECT phase completed!"
 			if [[ ${RESP_STATUS%% *} =~ ^2??$ ]]
 			then
-				echo "curl: (56) Received HTTP code $RESP_STATUS from proxy after CONNECT" >&2
+				debug_echo "curl: (56) Received HTTP code $RESP_STATUS from proxy after CONNECT"
 				exec >&-peer
-				echo "* Connection $CONN_COUNT closed" >&2
+				debug_echo "* Connection $CONN_COUNT closed"
 				exit
 			fi
 			exec >&"$peer"
@@ -212,7 +219,7 @@ http_request() {
 		cat <&"$peer"
 	fi
 
-	echo "* Connection $CONN_COUNT closed" >&2
+	debug_echo "* Connection $CONN_COUNT closed"
 	CONN_COUNT+=1
 }
 
@@ -294,6 +301,6 @@ exec {stdout}>&1
 http_request "$1"
 while $LOCATION && [[ -n "$REDIRECT_URL" ]]
 do
-	echo "* Issue another request to this URL: '$REDIRECT_URL'" >&2
+	debug_echo "* Issue another request to this URL: '$REDIRECT_URL'"
 	http_request "$REDIRECT_URL"
 done
