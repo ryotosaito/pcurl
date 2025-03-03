@@ -8,6 +8,7 @@ help() {
 	Usage: $0 [options]... <url>
 	 -A, --user-agent <name>                Send User-Agent <name> to Server
 	 -H, --header <header>                  Insert HTTP Header
+	 -h, --help                             Print help
 	 -L, --location                         Continue request after receiving Location header
 	 -o, --output <file>                    Output Response to OUTPUT file
 	 -v, --verbose                          Verbose output
@@ -15,7 +16,6 @@ help() {
 	 -x, --proxy <proxy>                    Use proxy
 	 --connect-to <host1:port1:host2:port2> connect to host2:port2 instead
 	EOF
-	exit
 }
 
 debug_echo() {
@@ -121,7 +121,7 @@ http_request() {
 	then
 		if [[ "${TARGET[HOST]}:${TARGET[PORT]}" = "${connect_to[0]}:${connect_to[1]}" ]]
 		then
-			# Use CONNECT method
+			# Use CONNECT method when mixing --connect-to option and --proxy option
 			send_peer "CONNECT ${connect_to[2]}:${connect_to[3]} HTTP/1.0"
 			send_peer "Host: ${connect_to[2]}:${connect_to[3]}"
 			send_peer "User-Agent: ${HEADERS[User-Agent]}"
@@ -162,9 +162,11 @@ http_request() {
 			exec >&"$peer"
 			send_peer "$METHOD ${TARGET[PATH]} HTTP/1.0"
 		else
+			# Access via proxy
 			send_peer "$METHOD ${TARGET[URL]} HTTP/1.0"
 		fi
 	else
+		# Direct access
 		send_peer "$METHOD ${TARGET[PATH]} HTTP/1.0"
 	fi
 
@@ -180,7 +182,7 @@ http_request() {
 	exec >&"$stdout"
 	# End of HTTP Request
 
-	# Parse HTTP Response Header
+	# Parse HTTP Response Line
 	exec <&"$peer"
 	read LINE
 	if $VERBOSE
@@ -190,6 +192,7 @@ http_request() {
 	RESP_STATUS="${LINE#HTTP/+([^ ]) }"
 	RESP_STATUS=${RESP_STATUS%$'\r'}
 
+	# Parse HTTP Response Header
 	while true
 	do
 		read LINE
@@ -201,6 +204,7 @@ http_request() {
 		then
 			echo "< $LINE" >&2
 		fi
+		# Parse Location header for redirection
 		if [[ "${LINE%%:*}" == "Location" ]]
 		then
 			REDIRECT_URL="${LINE#Location:+( )}"
@@ -239,9 +243,12 @@ declare -A HEADERS=(
 VERBOSE=false
 LOCATION=false
 
-while getopts AdHLovXx-: OPT
+while getopts AdHhLovXx-: OPT
 do
-	optarg="${!OPTIND}"
+	if [[ $OPTIND -le $# ]]
+	then
+		optarg="${!OPTIND}"
+	fi
 	if [[ "$OPT" = - ]]
 	then
 		OPT="-$OPTARG"
@@ -263,6 +270,10 @@ do
 			# TODO: Header format validation
 			HEADERS[${optarg%%:*}]="${optarg#*: }"
 			shift
+			;;
+		-h|--help)
+			help
+			exit
 			;;
 		-L|--location)
 			LOCATION=true
@@ -302,6 +313,7 @@ then
 	eval "${url_parsed/return/PROXY_TARGET}"
 fi
 
+# Default method
 if ! [[ -v METHOD ]]
 then
 	if [[ -v data ]]
@@ -312,6 +324,7 @@ then
 	fi
 fi
 
+# Set headers when content is set
 if [[ -v data ]]
 then
 	if ! [[ -v HEADERS[Content-Length] ]]
