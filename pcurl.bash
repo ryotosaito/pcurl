@@ -6,10 +6,12 @@ help() {
 	cat <<- EOF
 	cURL clone made using only bash
 	Usage: $0 [options]... <url>
-	 -A <name>   Send User-Agent <name> to Server
-	 -H <header> Insert HTTP Header
-	 -o <file>   Output Response to OUTPUT file
-	 -v          Verbose output
+	 -A, --user-agent <name>  Send User-Agent <name> to Server
+	 -H, --header <header>    Insert HTTP Header
+	 -L, --location           Continue request after receiving Location header
+	 -o, --output <file>      Output Response to OUTPUT file
+	 -v, --verbose            Verbose output
+	 -x, --proxy <proxy>      Use proxy
 	EOF
 	exit
 }
@@ -158,22 +160,39 @@ METHOD="GET"
 VERBOSE=false
 LOCATION=false
 
-while getopts A:H:Lo:vx: OPT; do
-	case "$OPT" in
-		A)
-			HEADERS["User-Agent"]="$OPTARG" ;;
-		H)
+while getopts AHLovx-: OPT
+do
+	OPTARG="${!OPTIND}"
+	if [[ "$OPT" = - ]]
+	then
+		OPT="-$OPTARG"
+	fi
+	case "-$OPT" in
+		-A|--user-agent)
+			HEADERS["User-Agent"]="$OPTARG"
+			shift
+			;;
+		-H|--header)
 			# TODO: Header format validation
-			HEADERS[${OPTARG%%:*}]="${OPTARG#*: }" ;;
-		L)
+			HEADERS[${OPTARG%%:*}]="${OPTARG#*: }"
+			shift
+			;;
+		-L|--location)
 			LOCATION=true;;
-		o)
-			OUTPUT="$OPTARG";;
-		v)
-			VERBOSE=true;;
-		x)
-			PROXY="$OPTARG" ;;
-		*) exit 1 ;;
+		-o|--output)
+			OUTPUT="$OPTARG"
+			shift
+			;;
+		-v|--verbose)
+			VERBOSE=true
+			;;
+		-x|--proxy)
+			PROXY="$OPTARG"
+			shift
+			;;
+		*)
+			exit 1
+			;;
 	esac
 done
 shift $((OPTIND - 1))
