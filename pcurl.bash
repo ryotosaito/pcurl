@@ -14,7 +14,7 @@ help() {
 	exit
 }
 
-send() {
+send_peer() {
 	if $VERBOSE
 	then
 		echo -e "> $1" >&2
@@ -94,16 +94,16 @@ http_request() {
 	# Send HTTP Request
 	if [[ -v PROXY ]]
 	then
-		send "$METHOD ${TARGET[URL]} HTTP/1.0"
+		send_peer "$METHOD ${TARGET[URL]} HTTP/1.0"
 	else
-		send "$METHOD ${TARGET[PATH]} HTTP/1.0"
+		send_peer "$METHOD ${TARGET[PATH]} HTTP/1.0"
 	fi
 
 	for key in "${!HEADERS[@]}"
 	do
-		send "$key: ${HEADERS[$key]}"
+		send_peer "$key: ${HEADERS[$key]}"
 	done
-	send ""
+	send_peer ""
 	exec >&"$stdout"
 	# End of HTTP Request
 
