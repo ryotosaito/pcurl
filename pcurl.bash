@@ -20,6 +20,43 @@ send() {
 	echo -en "$1\r\n"
 }
 
+# Parse URL parameter and print as `declare -p return`
+# URL=http://www.example.com:80/index.html
+# SCHEME=http (default: http), unused value
+# HOST=www.example.com
+# PORT=80 (default:80)
+# PATH=/index.html (default: /)
+parse_url() {
+	URL="$1"
+	SCHEME="${URL%://*}"
+	# Default scheme is "http"
+	[[ "$SCHEME" == "$URL" ]] && SCHEME=http
+	TMP="${URL#*://}"
+
+	# Append slash if path (/) not contained
+	TMP_REMOVE_SLASH="${TMP/\//}"
+	[[ ${#TMP} -eq ${#TMP_REMOVE_SLASH} ]] && TMP="$TMP/"
+
+	HOST_PORT="${TMP%%/*}"
+	HOST="${HOST_PORT%%:*}"
+	PORT_TMP="${HOST_PORT#+([^:]):}"
+	if [[ ${#HOST} -eq ${#PORT_TMP} ]]
+	then
+		PORT=80
+	else
+		declare -i PORT=$PORT_TMP
+	fi
+	PATH="/${TMP#*/}"
+
+	local -A return=(
+		[URL]="$URL"
+		[SCHEME]="$SCHEME"
+		[HOST]="$HOST"
+		[PORT]="$PORT"
+		[PATH]="$PATH"
+	)
+	echo "$(declare -p return)"
+}
 ###############################################
 # Main
 ###############################################
@@ -30,7 +67,7 @@ declare -A HEADERS=(
 METHOD="GET"
 VERBOSE=false
 
-while getopts A:H:o:v OPT; do
+while getopts A:H:o:vx: OPT; do
 	case "$OPT" in
 		A)
 			HEADERS["User-Agent"]="$OPTARG" ;;
@@ -41,6 +78,8 @@ while getopts A:H:o:v OPT; do
 			OUTPUT="$OPTARG";;
 		v)
 			VERBOSE=true;;
+		x)
+			PROXY="$OPTARG" ;;
 		*) exit 1 ;;
 	esac
 done
@@ -51,37 +90,41 @@ then
 	help
 	exit 1
 fi
-# URL parsing is not perfect.
-URL="$1"
-URL_SCHEME="${URL%://*}"
-TMP="${URL#*://}"
 
-# Append slash if path (/) not contained
-TMP_REMOVE_SLASH="${TMP/\//}"
-[[ ${#TMP} -eq ${#TMP_REMOVE_SLASH} ]] && TMP="$TMP/" 
-
-URL_HOST="${TMP%%/*}"
-HOST="${URL_HOST%%:*}"
-PORT_TMP="${URL_HOST/#+([^:]):/}"
-if [[ ${#HOST} -eq ${#PORT_TMP} ]]
+# Parse URL and set variable TARGET
+if [[ -v PROXY ]]
 then
-	PORT=80
-else
-	declare -i PORT=$PORT_TMP
+	url_parsed="$(parse_url "$PROXY")"
+	echo $url_parsed
+	eval "${url_parsed/return/PROXY_TARGET}"
 fi
-URL_PATH="/${TMP#*/}"
 
-[[ -v HEADERS[Host] ]] || HEADERS[Host]="$HOST"
+# Parse URL and set variable TARGET
+url_parsed="$(parse_url "$1")"
+eval "${url_parsed/return/TARGET}"
+
+[[ -v HEADERS[Host] ]] || HEADERS[Host]="${TARGET[HOST]}"
 
 # Copy original stdout
 exec {stdout}>&1
 
 # Connect peer
-exec {peer}<>"/dev/tcp/$HOST/$PORT"
+if [[ -v PROXY ]]
+then
+	exec {peer}<>"/dev/tcp/${PROXY_TARGET[HOST]}/${PROXY_TARGET[PORT]}"
+else
+	exec {peer}<>"/dev/tcp/${TARGET[HOST]}/${TARGET[PORT]}"
+fi
 exec >&"$peer"
 
 # Send HTTP Request
-send "$METHOD $URL_PATH HTTP/1.0"
+if [[ -v PROXY ]]
+then
+	send "$METHOD ${TARGET[URL]} HTTP/1.0"
+else
+	send "$METHOD ${TARGET[PATH]} HTTP/1.0"
+fi
+
 for key in "${!HEADERS[@]}"
 do
 	send "$key: ${HEADERS[$key]}"
