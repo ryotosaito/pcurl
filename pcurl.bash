@@ -6,12 +6,14 @@ help() {
 	cat <<- EOF
 	cURL clone made using only bash
 	Usage: $0 [options]... <url>
-	 -A, --user-agent <name>  Send User-Agent <name> to Server
-	 -H, --header <header>    Insert HTTP Header
-	 -L, --location           Continue request after receiving Location header
-	 -o, --output <file>      Output Response to OUTPUT file
-	 -v, --verbose            Verbose output
-	 -x, --proxy <proxy>      Use proxy
+	 -A, --user-agent <name>                Send User-Agent <name> to Server
+	 -H, --header <header>                  Insert HTTP Header
+	 -L, --location                         Continue request after receiving Location header
+	 -o, --output <file>                    Output Response to OUTPUT file
+	 -v, --verbose                          Verbose output
+	 -X, --request <method>                 Request using <method>
+	 -x, --proxy <proxy>                    Use proxy
+	 --connect-to <host1:port1:host2:port2> connect to host2:port2 instead
 	EOF
 	exit
 }
@@ -69,7 +71,7 @@ parse_url() {
 		[PORT]="$PORT"
 		[PATH]="$PATH"
 	)
-	echo "$(declare -p return)"
+	declare -p return
 }
 
 http_request() {
@@ -90,8 +92,16 @@ http_request() {
 		HOST="${PROXY_TARGET[HOST]}"
 		PORT="${PROXY_TARGET[PORT]}"
 	else
-		HOST="${TARGET[HOST]}"
-		PORT="${TARGET[PORT]}"
+		if [[ "${TARGET[HOST]}:${TARGET[PORT]}" = "${connect_to[0]}:${connect_to[1]}" ]]
+		then
+			HOST="${connect_to[2]}"
+			PORT="${connect_to[3]}"
+			echo "* Connecting to hostname: $HOST" >&2
+			echo "* Connecting to port: $PORT" >&2
+		else
+			HOST="${TARGET[HOST]}"
+			PORT="${TARGET[PORT]}"
+		fi
 	fi
 	echo "*   Trying $HOST:$PORT..." >&2
 	exec {peer}<>"/dev/tcp/$HOST/$PORT"
@@ -174,34 +184,43 @@ METHOD="GET"
 VERBOSE=false
 LOCATION=false
 
-while getopts AHLovx-: OPT
+while getopts AHLovXx-: OPT
 do
-	OPTARG="${!OPTIND}"
+	optarg="${!OPTIND}"
 	if [[ "$OPT" = - ]]
 	then
 		OPT="-$OPTARG"
 	fi
 	case "-$OPT" in
 		-A|--user-agent)
-			HEADERS["User-Agent"]="$OPTARG"
+			HEADERS["User-Agent"]="$optarg"
+			shift
+			;;
+		--connect-to)
+			declare -a connect_to=(${optarg//:/ })
 			shift
 			;;
 		-H|--header)
 			# TODO: Header format validation
-			HEADERS[${OPTARG%%:*}]="${OPTARG#*: }"
+			HEADERS[${optarg%%:*}]="${optarg#*: }"
 			shift
 			;;
 		-L|--location)
-			LOCATION=true;;
+			LOCATION=true
+			;;
 		-o|--output)
-			OUTPUT="$OPTARG"
+			OUTPUT="$optarg"
 			shift
 			;;
 		-v|--verbose)
 			VERBOSE=true
 			;;
+		-X|--request)
+			METHOD="$optarg"
+			shift
+			;;
 		-x|--proxy)
-			PROXY="$OPTARG"
+			PROXY="$optarg"
 			shift
 			;;
 		*)
