@@ -87,11 +87,17 @@ http_request() {
 	# Connect peer
 	if [[ -v PROXY ]]
 	then
-		exec {peer}<>"/dev/tcp/${PROXY_TARGET[HOST]}/${PROXY_TARGET[PORT]}"
+		HOST="${PROXY_TARGET[HOST]}"
+		PORT="${PROXY_TARGET[PORT]}"
 	else
-		exec {peer}<>"/dev/tcp/${TARGET[HOST]}/${TARGET[PORT]}"
+		HOST="${TARGET[HOST]}"
+		PORT="${TARGET[PORT]}"
 	fi
+	echo "*   Trying $HOST:$PORT..." >&2
+	exec {peer}<>"/dev/tcp/$HOST/$PORT"
 	exec >&"$peer"
+	echo "* Connected to $HOST port $PORT (#$CONN_COUNT)" >&2
+
 
 	# Send HTTP Request
 	if [[ -v PROXY ]]
@@ -133,6 +139,10 @@ http_request() {
 		then
 			REDIRECT_URL="${LINE#Location:+( )}"
 			REDIRECT_URL="${REDIRECT_URL%$'\r'}"
+			if [[ "$REDIRECT_URL" =~ ^/ ]]
+			then
+				REDIRECT_URL="${TARGET[SCHEME]}://${TARGET[HOST]}:${TARGET[PORT]}$REDIRECT_URL"
+			fi
 		fi
 	done
 	# End of HTTP Response Header
@@ -146,11 +156,15 @@ http_request() {
 	then
 		cat <&"$peer"
 	fi
+
+	echo "* Connection $CONN_COUNT closed" >&2
+	CONN_COUNT+=1
 }
 
 ###############################################
 # Main
 ###############################################
+declare -i CONN_COUNT=0
 declare -A HEADERS=(
 	[Accept-Encoding]="identity"
 	[Connection]="Close"
@@ -216,5 +230,6 @@ exec {stdout}>&1
 http_request "$1"
 while $LOCATION && [[ -n "$REDIRECT_URL" ]]
 do
+	echo "* Issue another request to this URL: '$REDIRECT_URL'" >&2
 	http_request "$REDIRECT_URL"
 done
