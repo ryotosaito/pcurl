@@ -112,7 +112,51 @@ http_request() {
 	# Send HTTP Request
 	if [[ -v PROXY ]]
 	then
-		send_peer "$METHOD ${TARGET[URL]} HTTP/1.0"
+		if [[ "${TARGET[HOST]}:${TARGET[PORT]}" = "${connect_to[0]}:${connect_to[1]}" ]]
+		then
+			# Use CONNECT method
+			send_peer "CONNECT ${connect_to[2]}:${connect_to[3]} HTTP/1.0"
+			send_peer "Host: ${connect_to[2]}:${connect_to[3]}"
+			send_peer "User-Agent: ${HEADERS[User-Agent]}"
+			send_peer ""
+			exec >&"$stdout"
+			# End of HTTP CONNECT Request
+
+			# Parse HTTP Response Header
+			exec <&"$peer"
+			read LINE
+			if $VERBOSE
+			then
+				echo "< $LINE" >&2
+			fi
+			RESP_STATUS=${LINE#HTTP/+([^ ]) }
+			RESP_STATUS=${RESP_STATUS%$'\r'}
+			while true
+			do
+				read LINE
+				if [[ "$LINE" == $'\r' ]]
+				then
+					break
+				fi
+				if $VERBOSE
+				then
+					echo "< $LINE" >&2
+				fi
+			done
+			echo "* Proxy replied ${RESP_STATUS%% *} to CONNECT request" >&2
+			echo "* CONNECT phase completed!" >&2
+			if [[ ${RESP_STATUS%% *} =~ ^2??$ ]]
+			then
+				echo "curl: (56) Received HTTP code $RESP_STATUS from proxy after CONNECT" >&2
+				exec >&-peer
+				echo "* Connection $CONN_COUNT closed" >&2
+				exit
+			fi
+			exec >&"$peer"
+			send_peer "$METHOD ${TARGET[PATH]} HTTP/1.0"
+		else
+			send_peer "$METHOD ${TARGET[URL]} HTTP/1.0"
+		fi
 	else
 		send_peer "$METHOD ${TARGET[PATH]} HTTP/1.0"
 	fi
@@ -132,7 +176,8 @@ http_request() {
 	then
 		echo "< $LINE" >&2
 	fi
-	RESP_STATUS="${LINE#HTTP/1.1 }"
+	RESP_STATUS="${LINE#HTTP/+([^ ]) }"
+	RESP_STATUS=${RESP_STATUS%$'\r'}
 
 	while true
 	do
