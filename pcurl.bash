@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/bin/bash -Ceu
+
+shopt -s extglob
 
 help() {
 	cat <<- EOF
@@ -30,7 +32,15 @@ parse_url() {
 	URL="$1"
 	SCHEME="${URL%://*}"
 	# Default scheme is "http"
-	[[ "$SCHEME" == "$URL" ]] && SCHEME=http
+	if [[ "$SCHEME" == "$URL" ]]
+	then
+		SCHEME=http
+	fi
+	if [[ "$SCHEME" != http ]]
+	then
+		echo "HTTP is the only supported scheme (given: $SCHEME)" >&2
+		exit 1
+	fi
 	TMP="${URL#*://}"
 
 	# Append slash if path (/) not contained
@@ -40,7 +50,7 @@ parse_url() {
 	HOST_PORT="${TMP%%/*}"
 	HOST="${HOST_PORT%%:*}"
 	PORT_TMP="${HOST_PORT#+([^:]):}"
-	if [[ ${#HOST} -eq ${#PORT_TMP} ]]
+	if [[ "${HOST}" == "${PORT_TMP}" ]]
 	then
 		PORT=80
 	else
@@ -57,23 +67,104 @@ parse_url() {
 	)
 	echo "$(declare -p return)"
 }
+
+http_request() {
+	# init
+	REDIRECT_URL=
+	# Parse URL and set variable TARGET
+	url_parsed="$(parse_url "$1")"
+	if [[ -z "$url_parsed" ]]
+	then
+		exit 1
+	fi
+	eval "${url_parsed/return/TARGET}"
+	[[ -v HEADERS[Host] ]] || HEADERS[Host]="${TARGET[HOST]}"
+
+	# Connect peer
+	if [[ -v PROXY ]]
+	then
+		exec {peer}<>"/dev/tcp/${PROXY_TARGET[HOST]}/${PROXY_TARGET[PORT]}"
+	else
+		exec {peer}<>"/dev/tcp/${TARGET[HOST]}/${TARGET[PORT]}"
+	fi
+	exec >&"$peer"
+
+	# Send HTTP Request
+	if [[ -v PROXY ]]
+	then
+		send "$METHOD ${TARGET[URL]} HTTP/1.0"
+	else
+		send "$METHOD ${TARGET[PATH]} HTTP/1.0"
+	fi
+
+	for key in "${!HEADERS[@]}"
+	do
+		send "$key: ${HEADERS[$key]}"
+	done
+	send ""
+	exec >&"$stdout"
+	# End of HTTP Request
+
+	# Parse HTTP Response Header
+	exec <&"$peer"
+	read LINE
+	if $VERBOSE
+	then
+		echo "< $LINE" >&2
+	fi
+	RESP_STATUS="${LINE#HTTP/1.1 }"
+
+	while true
+	do
+		read LINE
+		if [[ "$LINE" == $'\r' ]]
+		then
+			break
+		fi
+		if $VERBOSE
+		then
+			echo "< $LINE" >&2
+		fi
+		if [[ "${LINE%%:*}" == "Location" ]]
+		then
+			REDIRECT_URL="${LINE#Location:+( )}"
+			REDIRECT_URL="${REDIRECT_URL%$'\r'}"
+		fi
+	done
+	# End of HTTP Response Header
+
+	# Response body
+	if [[ -v OUTPUT ]]
+	then
+		exec >"$OUTPUT"
+	fi
+	if ! $LOCATION || [[ -z "$REDIRECT_URL" ]]
+	then
+		cat <&"$peer"
+	fi
+}
+
 ###############################################
 # Main
 ###############################################
 declare -A HEADERS=(
 	[Accept-Encoding]="identity"
 	[Connection]="Close"
+	[User-Agent]="curl"
 )
 METHOD="GET"
 VERBOSE=false
+LOCATION=false
 
-while getopts A:H:o:vx: OPT; do
+while getopts A:H:Lo:vx: OPT; do
 	case "$OPT" in
 		A)
 			HEADERS["User-Agent"]="$OPTARG" ;;
 		H)
 			# TODO: Header format validation
 			HEADERS[${OPTARG%%:*}]="${OPTARG#*: }" ;;
+		L)
+			LOCATION=true;;
 		o)
 			OUTPUT="$OPTARG";;
 		v)
@@ -95,58 +186,14 @@ fi
 if [[ -v PROXY ]]
 then
 	url_parsed="$(parse_url "$PROXY")"
-	echo $url_parsed
 	eval "${url_parsed/return/PROXY_TARGET}"
 fi
-
-# Parse URL and set variable TARGET
-url_parsed="$(parse_url "$1")"
-eval "${url_parsed/return/TARGET}"
-
-[[ -v HEADERS[Host] ]] || HEADERS[Host]="${TARGET[HOST]}"
 
 # Copy original stdout
 exec {stdout}>&1
 
-# Connect peer
-if [[ -v PROXY ]]
-then
-	exec {peer}<>"/dev/tcp/${PROXY_TARGET[HOST]}/${PROXY_TARGET[PORT]}"
-else
-	exec {peer}<>"/dev/tcp/${TARGET[HOST]}/${TARGET[PORT]}"
-fi
-exec >&"$peer"
-
-# Send HTTP Request
-if [[ -v PROXY ]]
-then
-	send "$METHOD ${TARGET[URL]} HTTP/1.0"
-else
-	send "$METHOD ${TARGET[PATH]} HTTP/1.0"
-fi
-
-for key in "${!HEADERS[@]}"
+http_request "$1"
+while $LOCATION && [[ -n "$REDIRECT_URL" ]]
 do
-	send "$key: ${HEADERS[$key]}"
+	http_request "$REDIRECT_URL"
 done
-send ""
-exec >&"$stdout"
-# End of HTTP Request
-
-# Parse HTTP Response Header
-exec <&"$peer"
-read LINE
-$VERBOSE && echo "< $LINE" >&2
-RESP_STATUS="${LINE#HTTP/1.1 }"
-
-while true
-do
-	read LINE
-	[[ "$LINE" == $'\r' ]] && break
-	$VERBOSE && echo "< $LINE" >&2
-done
-# End of HTTP Response Header
-
-# Response body
-[[ -v OUTPUT ]] && exec >"$OUTPUT"
-cat <&"$peer"
