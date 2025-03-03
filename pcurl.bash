@@ -173,6 +173,10 @@ http_request() {
 		send_peer "$key: ${HEADERS[$key]}"
 	done
 	send_peer ""
+	if [[ -v data ]]
+	then
+		echo -n "$data"
+	fi
 	exec >&"$stdout"
 	# End of HTTP Request
 
@@ -232,11 +236,10 @@ declare -A HEADERS=(
 	[Connection]="Close"
 	[User-Agent]="curl"
 )
-METHOD="GET"
 VERBOSE=false
 LOCATION=false
 
-while getopts AHLovXx-: OPT
+while getopts AdHLovXx-: OPT
 do
 	optarg="${!OPTIND}"
 	if [[ "$OPT" = - ]]
@@ -250,6 +253,10 @@ do
 			;;
 		--connect-to)
 			declare -a connect_to=(${optarg//:/ })
+			shift
+			;;
+		-d|--data)
+			data="$optarg"
 			shift
 			;;
 		-H|--header)
@@ -293,6 +300,28 @@ if [[ -v PROXY ]]
 then
 	url_parsed="$(parse_url "$PROXY")"
 	eval "${url_parsed/return/PROXY_TARGET}"
+fi
+
+if ! [[ -v METHOD ]]
+then
+	if [[ -v data ]]
+	then
+		METHOD=POST
+	else
+		METHOD=GET
+	fi
+fi
+
+if [[ -v data ]]
+then
+	if ! [[ -v HEADERS[Content-Length] ]]
+	then
+		HEADERS[Content-Length]="${#data}"
+	fi
+	if ! [[ -v HEADERS[Content-Type] ]]
+	then
+		HEADERS[Content-Type]="application/x-www-form-urlencoded"
+	fi
 fi
 
 # Copy original stdout
