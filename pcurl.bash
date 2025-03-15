@@ -7,6 +7,7 @@ help() {
 	cURL clone made using only bash
 	Usage: $0 [options]... <url>
 	 -A, --user-agent <name>                Send User-Agent <name> to Server
+	 -d, --data <data>                      HTTP POST data
 	 -H, --header <header>                  Insert HTTP Header
 	 -h, --help                             Print help
 	 -L, --location                         Continue request after receiving Location header
