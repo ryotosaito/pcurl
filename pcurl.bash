@@ -137,7 +137,7 @@ http_request() {
 			then
 				echo "< $LINE" >&2
 			fi
-			RESP_STATUS=${LINE#HTTP/+([^ ]) }
+			RESP_STATUS="${LINE##HTTP/+([[:digit:].]) }"
 			RESP_STATUS=${RESP_STATUS%$'\r'}
 			while true
 			do
@@ -153,10 +153,10 @@ http_request() {
 			done
 			debug_echo "* Proxy replied ${RESP_STATUS%% *} to CONNECT request"
 			debug_echo "* CONNECT phase completed!"
-			if [[ ${RESP_STATUS%% *} =~ ^2??$ ]]
+			if [[ $(( ${RESP_STATUS%% *} / 100)) -gt 2 ]]
 			then
 				debug_echo "curl: (56) Received HTTP code $RESP_STATUS from proxy after CONNECT"
-				exec >&-peer
+				exec >&$peer-
 				debug_echo "* Connection $CONN_COUNT closed"
 				exit
 			fi
@@ -190,7 +190,7 @@ http_request() {
 	then
 		echo "< $LINE" >&2
 	fi
-	RESP_STATUS="${LINE#HTTP/+([^ ]) }"
+	RESP_STATUS="${LINE##HTTP/+([[:digit:].]) }"
 	RESP_STATUS=${RESP_STATUS%$'\r'}
 
 	# Parse HTTP Response Header
@@ -208,7 +208,9 @@ http_request() {
 		# Parse Location header for redirection
 		if [[ "${LINE%%:*}" == "Location" ]]
 		then
-			REDIRECT_URL="${LINE#Location:+( )}"
+			# RFC1945
+			# Each header field consists of a name followed immediately by a colon (":"), a single space (SP) character, and the field value.
+			REDIRECT_URL="${LINE#Location: }"
 			REDIRECT_URL="${REDIRECT_URL%$'\r'}"
 			if [[ "$REDIRECT_URL" =~ ^/ ]]
 			then
