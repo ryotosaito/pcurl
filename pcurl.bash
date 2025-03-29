@@ -2,8 +2,14 @@
 
 shopt -s extglob
 
+pcat() {
+	read -d '' input || true
+	echo "$input"
+}
+
+
 help() {
-	cat <<- EOF
+	pcat <<- EOF
 	cURL clone made using only bash
 	Usage: $0 [options]... <url>
 	 -A, --user-agent <name>                Send User-Agent <name> to Server
@@ -227,7 +233,7 @@ http_request() {
 	fi
 	if ! $LOCATION || [[ -z "$REDIRECT_URL" ]]
 	then
-		cat <&"$peer"
+		pcat <&"$peer"
 	fi
 
 	debug_echo "* Connection $CONN_COUNT closed"
